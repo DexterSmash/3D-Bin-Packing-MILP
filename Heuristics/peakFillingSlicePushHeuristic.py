@@ -1,0 +1,136 @@
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+from dataclasses import dataclass
+from typing import List, Tuple, Optional
+import random
+
+@dataclass
+class Box:
+    id: int
+    w: int
+    l: int
+    h: int
+
+@dataclass
+class Container:
+    w: int
+    l: int
+    h: int
+
+@dataclass
+class Position:
+    x: int
+    y: int
+    z: int
+
+@dataclass
+class PlacedBox:
+    box: Box
+    pos: Position
+
+class PFSP3DPacker:
+    def __init__(self, container: Container, boxes: List[Box], slicing_ratios: List[float]):
+        self.container = container
+        self.original_boxes = boxes.copy()
+        self.boxes = sorted(boxes, key=lambda b: (-b.h, -b.w, -b.l))
+        self.placed_boxes: List[PlacedBox] = []
+        self.slicing_ratios = slicing_ratios
+
+    def slice_container(self):
+        slices = []
+        for ratio in self.slicing_ratios:
+            slice_height = int(self.container.h * ratio)
+            if slice_height > 0:
+                slices.append(slice_height)
+        return slices
+
+    def create_2D_representation(self):
+        return [[0] * self.container.l for _ in range(self.container.w)]
+
+    def can_place(self, grid, box, x, y):
+        for i in range(x, x + box.w):
+            for j in range(y, y + box.l):
+                if i >= self.container.w or j >= self.container.l or grid[i][j] != 0:
+                    return False
+        return True
+
+    def mark_occupied(self, grid, box, x, y):
+        for i in range(x, x + box.w):
+            for j in range(y, y + box.l):
+                grid[i][j] = 1
+
+    def place_box_in_slice(self, slice_grid, box: Box) -> Optional[Tuple[int, int]]:
+        for x in range(self.container.w - box.w + 1):
+            for y in range(self.container.l - box.l + 1):
+                if self.can_place(slice_grid, box, x, y):
+                    self.mark_occupied(slice_grid, box, x, y)
+                    return x, y
+        return None
+    
+    def peak_fill_slice(self, z_start: int, slice_height: int):
+        slice_grid = self.create_2D_representation()
+        temp_boxes = self.boxes.copy()
+        for box in temp_boxes:
+            if box.h <= slice_height:
+                pos = self.place_box_in_slice(slice_grid, box)
+                if pos:
+                    x, y = pos
+                    self.placed_boxes.append(PlacedBox(box, Position(x, y, z_start)))
+                    self.boxes.remove(box)
+
+    def pack_boxes(self):
+        current_z = 0
+        for slice_height in self.slice_container():
+            if current_z + slice_height <= self.container.h:
+                self.peak_fill_slice(current_z, slice_height)
+                current_z += slice_height
+        return self.placed_boxes
+
+    def visualize_packing(self):
+        fig = plt.figure(figsize=(10, 8))
+        ax = fig.add_subplot(111, projection='3d')
+        colors = {}
+
+        for placed in self.placed_boxes:
+            box = placed.box
+            pos = placed.pos
+            color = colors.get(box.id, (random.random(), random.random(), random.random()))
+            colors[box.id] = color
+            self.draw_box(ax, pos.x, pos.y, pos.z, box.w, box.l, box.h, color)
+
+        ax.set_xlim([0, self.container.w])
+        ax.set_ylim([0, self.container.l])
+        ax.set_zlim([0, self.container.h])
+        ax.set_xlabel('Width (X)')
+        ax.set_ylabel('Length (Y)')
+        ax.set_zlabel('Height (Z)')
+        ax.set_title("3D Bin Packing Visualization (PFSP)")
+        plt.show()
+
+    def draw_box(self, ax, x, y, z, dx, dy, dz, color):
+        xx = [x, x+dx, x+dx, x, x]
+        yy = [y, y, y+dy, y+dy, y]
+        kwargs = {'alpha': 0.8, 'color': color}
+        ax.plot3D(xx, yy, [z]*5, **kwargs)
+        ax.plot3D(xx, yy, [z+dz]*5, **kwargs)
+        for i in range(4):
+            ax.plot3D([xx[i], xx[i]], [yy[i], yy[i]], [z, z+dz], **kwargs)
+
+# === Example Usage ===
+if __name__ == "__main__":
+    container = Container(w=10, l=10, h=10)
+    boxes = [
+        Box(id=1, w=4, l=4, h=4),
+        Box(id=2, w=3, l=3, h=3),
+        Box(id=3, w=2, l=2, h=2),
+        Box(id=4, w=5, l=5, h=2),
+        Box(id=5, w=3, l=3, h=5),
+        Box(id=6, w=2, l=2, h=1),
+        Box(id=7, w=3, l=3, h=2),
+        Box(id=8, w=1, l=1, h=1)
+    ]
+
+    slicing_ratios = [0.2, 0.2, 0.2, 0.2, 0.2]  # Must sum to ≤ 1.0
+    packer = PFSP3DPacker(container, boxes, slicing_ratios)
+    packer.pack_boxes()
+    packer.visualize_packing()
